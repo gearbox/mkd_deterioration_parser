@@ -1,0 +1,6 @@
+out/
+venv/
+
+# Packaging related files
+*.egg
+*.egg-info
