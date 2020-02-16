@@ -34,6 +34,12 @@ class Web:
         Path(self.project_results_dir).mkdir(exist_ok=True)
 
     def load_data(self, url, **kwargs):
+        """
+        Downloads data
+        :param url:
+        :param kwargs:
+        :return:
+        """
         site = self.s.get(self.origin, verify=True)
         cookies = dict(site.cookies)
         if self.headers:
@@ -51,7 +57,7 @@ class Territories:
     def __init__(self, url=None, payload=None):
         territories_payload = {
             "managementTypes": [],
-            "operationYearFrom": 1799,
+            "operationYearFrom": 1700,
             "operationYearTo": 2020,
             "territories": [],
             "withFederalDistricts": False,
@@ -68,13 +74,14 @@ class Territories:
         print('DF\n', dataframe.head())
         print('DF\n', dataframe.info())
         territories = dataframe['territory'].apply(pd.Series)
+        print('Territories', territories.head())
         territories.columns = ['key'] + ['territory_' + col for col in territories.columns[1:]]
         houses_with_deterioration = dataframe['housesWithDeterioration'].apply(pd.Series)
         houses_with_deterioration.columns = ['housesWithDeterioration_' + col for col in
                                              houses_with_deterioration.columns]
-        df = pd.concat([territories, houses_with_deterioration, dataframe], axis=1). \
+        dataframe = pd.concat([territories, houses_with_deterioration, dataframe], axis=1). \
             drop(['territory', 'housesWithDeterioration'], axis=1)
-        df.set_index(['key'], inplace=True)
+        dataframe.set_index(['key'], inplace=True)
         return dataframe
 
 
@@ -138,7 +145,7 @@ def main():
     h = HouseAddresses()
 
     territories_data = w.load_data(url=t.url, json=t.payload).json()
-    w.save_json(str(territories_data), w.project_results_dir / 'territories.json')
+    # w.save_json(str(territories_data), w.project_results_dir / 'territories.json')
     print('Terr Data', territories_data)
 
     terr_df = t.dataframe(territories_data)
@@ -149,7 +156,7 @@ def main():
     # test_get = w.s.get('https://dom.gosuslugi.ru/#!/houses-condition/deterioration')
     # print('Test Get: \n', test_get.content.decode('utf-8'))
 
-    central_district_data = w.load_data(t.url, json=h.test_payload).json()
+    '''central_district_data = w.load_data(t.url, json=h.test_payload).json()
     print('Test Data', central_district_data)
 
     houses_data = w.load_data(h.url, json=h.payload).json()
@@ -159,7 +166,7 @@ def main():
     houses_df = h.dataframe(houses_data)
     houses_df.to_excel(w.project_results_dir / 'houses.xlsx')
     print('H-DF\n', houses_df.head())
-    print('H-DF\n', houses_df.info())
+    print('H-DF\n', houses_df.info())'''
 
     w.s.close()
 
