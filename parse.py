@@ -161,7 +161,7 @@ class HouseAddresses:
 
 def time_spent(func):
     """
-    Measures time spent. Can be used a 'decorator'
+    Measures time spent by any function or method. Can be used as a @decorator
     :param func:
     :return:
     """
