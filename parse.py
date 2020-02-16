@@ -44,19 +44,21 @@ class Web:
         self.project_results_dir = self.project_dir_path / 'out'
         Path(self.project_results_dir).mkdir(exist_ok=True)
 
-    def load_data(self, url, **kwargs):
+    def load_data(self, url, method='post', headers=None, **kwargs):
         """
         Downloads data
         :param url: URL to fetch data from
+        :param method: request method. 'post' is used by default
+        :param headers: Headers for the request. If got None from the parameter, then use Class headers
         :param kwargs: Keyword arguments
         :return:
         """
-        site = self.s.get(self.origin, verify=True)
-        cookies = dict(site.cookies)
-        if self.headers:
+        headers = self.headers if headers is None else headers
+        if headers:
             self.s.headers.update(self.headers)
         self.s.headers.update({'User-Agent': self.user_agent})
-        return self.s.post(url, verify=True, cookies=cookies, **kwargs)
+        data = getattr(self.s, method)(url, verify=True, **kwargs)
+        return data
 
     @staticmethod
     def save_json(data, save_path='out.json', mode='w'):
@@ -125,7 +127,8 @@ class HouseAddresses:
     Addresses
     """
     def __init__(self, url=None, payload=None):
-        houses_url = 'https://dom.gosuslugi.ru/interactive-reports/api/rest/services/housesConditionReport/houses'
+        houses_list_url = 'https://dom.gosuslugi.ru/interactive-reports/api/rest/services/housesConditionReport/houses'
+        house_url = 'https://dom.gosuslugi.ru/homemanagement/api/rest/services/houses/public/1/'
         central_district_payload = {
             "managementTypes": [],
             "operationYearFrom": 1700,
@@ -144,9 +147,16 @@ class HouseAddresses:
             "sortBy": "address",
             "sortAsc": True,
             "pageNumber": 1,
+            # По умолчанию скачивает 100 результатов за раз. Всего 677 страниц по 100. Можно
+            # получать данные в цикле
+            # "pageSize": 100
+
+            # Но можно просто увеличить размер получаемых за раз данных до 67700 результатов
+            # Не всегда так получается сделать, но в данном случае сервер нас не ограничивает.
             "pageSize": 67700
         }
-        self.url = houses_url if url is None else url
+        self.houses_list_url = houses_list_url if url is None else url
+        self.house_url = house_url
         self.payload = houses_payload if payload is None else payload
         self.test_payload = central_district_payload
 
@@ -191,7 +201,9 @@ def main():
     # test_get = w.s.get('https://dom.gosuslugi.ru/#!/houses-condition/deterioration')
     # print('Test Get: \n', test_get.content.decode('utf-8'))
 
-    # Скачиваем данные в формате JSON
+    # Скачиваем основную страницу чтобы получить необходимые куки и заголовки
+    w.load_data(url=w.origin, method='get')
+    # Скачиваем данные о субъектах РФ в формате JSON
     territories_data = w.load_data(url=t.url, json=t.payload).json()
     # Сохраняем полученные данные в текстовый файл - просто для справки (для работы не требуется)
     w.save_json(str(territories_data), w.project_results_dir / 'territories.json')
@@ -209,7 +221,7 @@ def main():
     print('Test Data', central_district_data)
 
     # Получаем данные по домам и адресам
-    houses_data = w.load_data(h.url, json=h.payload).json()
+    houses_data = w.load_data(h.houses_list_url, json=h.payload).json()
     # Сохраняем полученные данные в текстовый файл - просто для справки (для работы не требуется)
     w.save_json(str(houses_data), w.project_results_dir / 'houses.json')
     print('Houses Data', houses_data)
@@ -220,6 +232,37 @@ def main():
     houses_df.to_excel(w.project_results_dir / 'houses.xlsx')
     print('H-DF\n', houses_df.head())
     print('H-DF\n', houses_df.info())
+
+    # Формируем список с идентификаторами домов? по которым будем получать дополнительную информацию
+    # Задаем ограничение на количество получаемых данных: может быть либо целым числом, либо списком идентификаторов
+    # Если указано 0 - скачивает все данные без ограничения (!может занять очень много времени)
+    # Если число больше 0 - скачаем указанное число первых идентификаторов
+    # Если передаем список идентификаторов - скачиваем все по списку
+    ids_limit = 10
+
+    if isinstance(ids_limit, int) and ids_limit > 0:
+        houses_guids = list(houses_df.index.values)[:ids_limit]
+    elif isinstance(ids_limit, list):
+        houses_guids = ids_limit
+    else:
+        houses_guids = list(houses_df.index.values)
+
+    # Получаем дополнительную информацию по домам
+    # Проходим в цикле по всем ID домов
+    for guid in houses_guids:
+        house = w.load_data(url=h.house_url + guid, method='get').json()
+        print('***HOUSE: ', house)
+        # Создаем датафрейм для текущего дома
+        house_info_df = pd.DataFrame([house])
+        house_info_df.set_index(['guid'], inplace=True)
+        # Добавляем текущий датафрейм к нашему датафрейму с информайией о домах? полученному на предыдущем шаге.
+        # houses_df.update(house_info_df)  # Вариант добавления датафрейма
+        houses_df = houses_df.combine_first(house_info_df)
+        houses_df.reset_index()
+    print('Final Head', houses_df.head())
+    # Сохраняем итоговый датафрейм в новый файл
+    # TODO: Очень долго сохраняет. Найти вариант получше
+    houses_df.to_excel(w.project_results_dir / 'detailed_houses.xlsx')
 
     # Закрываем сессию (закрываем все соединения с сервером и очищаем память)
     w.s.close()
